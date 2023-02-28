@@ -1,0 +1,182 @@
+---
+title: "Exercise for Solutions Analytics Data Scientist role"
+author: "Tarek Peña"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r,include=FALSE}
+#defaultW <- getOption("warn") 
+
+#options(warn = -1) 
+
+
+# Package names
+packages <- c("lubridate","tidyverse","data.table","tibble","kableExtra","knitr","gridExtra")
+
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed_packages])
+}
+
+# Packages loading
+invisible(lapply(packages, library, character.only = TRUE))
+
+
+
+path_file="https://raw.githubusercontent.com/Tarek3141592/recruitmentCandidateExercise/TarekSolution/data.csv"
+
+ads.stock <- read.csv(path_file)
+
+names(ads.stock) <- gsub("\\.\\.",".",names(ads.stock))
+names(ads.stock) <- str_replace_all(names(ads.stock),"\\.$","")
+
+ads.stock$Date.Week <- dmy(ads.stock$Date.Week)
+ads.stock$Media.Campaign <- as.factor(ads.stock$Media.Campaign)
+```
+
+## Analysis
+
+
+In order to start my analysis, I created a data frame called "ads.stock" that contains the data we will use to analyze the campaigns. Here is a preview of the data in the "ads.stock" data frame:
+
+```{r, echo=FALSE}
+kable(head(ads.stock, 5),col.names = gsub("\\."," ",names(ads.stock)),align ="c", format = "html")%>%
+  kable_styling(position = "center")
+retention_factor  <- 0.1
+
+```
+
+We already have the media spending. Now, we need to model the ads stock as:
+
+$$Ad\ stock (in\ week\ n) = Media\ Spend (in\ week\ n) + [ RF\ x\ Ad\ stock\ (in\ week\ n-1) ]$$
+
+
+To do this, I used the following code, where I chose a retention factor (RF) of `r retention_factor`.
+
+```{r}
+
+ads.stock$ads.stock <- as.numeric(format(round(stats::filter(x=ads.stock$Media.Spend.USD, filter=retention_factor, method="recursive"),2), scientific=FALSE))
+
+```
+
+## How looks the data?
+
+Before we start with the model, I would like to explore the data a little.
+
+```{r, echo=FALSE}
+plot1 <- ggplot(ads.stock,aes(x=Date.Week,y=Search.Volume,color=Media.Campaign))+
+  geom_point()+
+  labs(title="search volume by campaign",
+       x = 'Date', 
+       y = 'Search volume',
+       color = 'Media Campaign' )+ theme(legend.position="top")
+
+plot2 <- ggplot(ads.stock,aes(x=Date.Week,y=Media.Spend.USD ,color=Media.Campaign))+
+  geom_point()+
+  labs(title="Media spend USD  by campaign",
+       x = 'Date', 
+       y = 'Media Spend' ,
+       color = 'Media Campaign')+ theme(legend.position="top")
+
+grid.arrange(plot1, plot2, ncol=2, widths = c(0.5,0.5))
+```
+
+As we can see from the plots, the campaign that was running at the moment of maximum search volume was the second one. 
+
+In addition, it was the campaign with the least spending. These observations may lead us to conclude that the second campaign was the best. However, let's not jump to conclusions until we have modeled the data.
+
+
+## How are we modeling the Search volume?
+
+I will be using a linear regression for the model. But before I show the model, let me explain the approach I will be using.
+
+We have basically 3 variables to model the search volume:
+
+1.Date
+
+2.Campaign
+
+3.Ads stock
+
+To keep it simple, I will use only the campaign and ads stock variables. However, instead of using them separately, I want to use their interaction.
+
+$$Search\ Volume (week) = b + \sum_{i=1}^3 Campaign_{\_i}(week)\ *\ ads\_stock_{i}(week) $$
+The coefficients $Campaign_{\_i}(week)$ in the model would represent the rate of search volume per USD spent, or in other words, the efficiency of the campaign. The greater the ratio, the more efficient the campaign is likely to be.
+<br>
+<br>
+Note:  The coefficient $Campaign_{\_i}(week)$ is zero in the weeks where $campaign_i$ was not running.
+
+<br>
+Here is the code to fit the model.
+<br>
+```{r}
+linear_Model<-lm(
+  Search.Volume ~ ads.stock:Media.Campaign ,
+  data=ads.stock
+)
+```
+
+```{r,include=FALSE}
+ads.stock$Search.Volume.predicted <- round(predict (linear_Model,ads.stock , type='response') )
+
+ads.stock <- gather(ads.stock, key = "search", value = "volume",Search.Volume,Search.Volume.predicted )
+```
+
+In the next plot we see a comparative of the predictions and the real search  volume. 
+<br>
+As we can see, the model provides a good description of the search volume.
+
+```{r, echo=FALSE}
+ggplot(ads.stock,aes(x=Date.Week,y=volume,color=gsub("\\.", " ",search)))+
+  geom_line()+
+  geom_hline(yintercept = summary(linear_Model)$coefficients[1,1], color ='darkblue' )+
+  labs(title = "Search volume real and predicted",
+       x = 'Date',
+       color = "" )+
+  theme(legend.position="top")
+```
+
+## Which campaign was the most effective?
+
+We can now use the coefficients from our model to determine which campaign was more effective.
+
+
+```{r, include=FALSE}
+Results <- data.frame(Coefficients =  c(summary(linear_Model)$coefficients[1:4,1]))%>%arrange(desc(Coefficients))
+Results <- tibble::rownames_to_column(Results, "Variable")
+Results$Variable <- gsub("(Intercept)", "base search volume", Results$Variable)
+Results$Variable <- gsub("[._]", " ", Results$Variable)
+Results$Variable <- gsub(":", " in ", Results$Variable)
+Results$Variable <- gsub("Media", "", Results$Variable)
+
+
+
+```
+
+
+Below are the results
+
+```{r, echo=FALSE}
+greater_coefficient <- which(Results$Coefficients== max(Results$Coefficients[Results$Variable!='(base search volume)']) )
+lower_coefficients <-  which(Results$Coefficients< max(Results$Coefficients[Results$Variable!='(base search volume)']) )
+knitr::kable(Results,align ="lc", format = "html")%>%
+  kable_styling(position = "center")%>%
+  row_spec(greater_coefficient, bold = T, color = "white", background = "darkgreen")%>%
+  row_spec(lower_coefficients, bold = T, color = "darkred")
+
+Better_campaign <- gsub('[ads stock in , Campaign]', '',Results$Variable[greater_coefficient])
+
+
+```
+
+
+Campaign `r Better_campaign` was the more effective, confirming our initial insight from the first two plots, but now we also have a model to support this conclusion and a measure of effectiveness.
+<br>
+<br>
+
