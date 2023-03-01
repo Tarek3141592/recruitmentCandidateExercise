@@ -120,9 +120,21 @@ linear_Model<-lm(
   Search.Volume ~ ads.stock:Media.Campaign ,
   data=ads.stock
 )
+
+
 ```
 
+```{r,echo=FALSE}
+
+if (any(c(summary(linear_Model)$coefficients[1:4,4])>0.05)){
+  print( "The coefficients in the model are not significant, please be careful with the conclusions you may obtain from it")
+}
+```
+
+
+
 ```{r,include=FALSE}
+
 ads.stock$Search.Volume.predicted <- round(predict (linear_Model,ads.stock , type='response') )
 
 ads.stock <- gather(ads.stock, key = "search", value = "volume",Search.Volume,Search.Volume.predicted )
@@ -131,6 +143,7 @@ ads.stock <- gather(ads.stock, key = "search", value = "volume",Search.Volume,Se
 In the next plot we see a comparative of the predictions and the real search  volume. 
 <br>
 As we can see, the model provides a good description of the search volume.
+In addition, we investigate 
 
 ```{r, echo=FALSE}
 ggplot(ads.stock,aes(x=Date.Week,y=volume,color=gsub("\\.", " ",search)))+
